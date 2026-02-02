@@ -25,6 +25,19 @@ export class PlayerManager {
     const id = savedData?.id ?? uuidv4();
     const playerColor = color ?? PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
 
+    // Check if player already exists (reconnecting)
+    const existingPlayer = this.players.get(id);
+    if (existingPlayer) {
+      // Reconnect: restore existing player with their score
+      existingPlayer.name = name;
+      existingPlayer.color = playerColor;
+      existingPlayer.isOnline = true;
+      existingPlayer.lastActivity = Date.now();
+      this.socketToPlayer.set(socketId, id);
+      console.log(`[PlayerManager] Player reconnected: ${name} (score: ${existingPlayer.score})`);
+      return existingPlayer;
+    }
+
     const skills: Record<SkillType, PlayerSkillState> = {
       scan: { skillId: 'scan', lastUsed: 0, isActive: false },
       shield: { skillId: 'shield', lastUsed: 0, isActive: false },
@@ -68,6 +81,7 @@ export class PlayerManager {
 
     this.players.set(id, player);
     this.socketToPlayer.set(socketId, id);
+    console.log(`[PlayerManager] New player created: ${name}`);
 
     return player;
   }
@@ -504,7 +518,7 @@ export class PlayerManager {
   }
 
   getLeaderboard(limit: number = 10): Player[] {
-    return this.getAllPlayers()
+    return this.getOnlinePlayers()
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
   }
@@ -522,16 +536,22 @@ export class PlayerManager {
     // Clear all timers first
     this.clearAllTimers();
 
+    // Keep all players (including offline) - don't delete anyone
+    // This allows players to reconnect and keep their accumulated score
+
+    // Reset all session data including score for new map
     for (const player of this.players.values()) {
+      // Reset score for new session/map
       player.score = 0;
-      player.stats = {
-        cellsRevealed: 0,
-        correctFlags: 0,
-        minesTriggered: 0,
-        score: 0,
-        chainReveals: 0,
-        itemsCollected: 0,
-      };
+
+      // Reset all stats
+      player.stats.score = 0;
+      player.stats.cellsRevealed = 0;
+      player.stats.correctFlags = 0;
+      player.stats.minesTriggered = 0;
+      player.stats.chainReveals = 0;
+      player.stats.itemsCollected = 0;
+
       player.items = [];
       player.activeEffects = [];
       player.cooldownReduction = 0;

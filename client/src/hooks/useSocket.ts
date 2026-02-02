@@ -96,6 +96,14 @@ function initializeSocketHandlers(socket: TypedSocket) {
   });
 
   socket.on('session:ending', ({ reason, countdown }) => {
+    // Save current session score to totalScore before session ends
+    const player = usePlayerStore.getState().player;
+    if (player && player.score > 0) {
+      usePlayerStore.getState().addToTotalScore(player.score);
+      usePlayerStore.getState().incrementGamesPlayed();
+      console.log('[Socket] Session ending - saved score:', player.score, 'to totalScore');
+    }
+
     useGameStore.getState().addNotification({
       id: crypto.randomUUID(),
       type: 'warning',
@@ -108,6 +116,24 @@ function initializeSocketHandlers(socket: TypedSocket) {
   socket.on('session:new', (session) => {
     useGameStore.getState().reset();
     useGameStore.getState().setSession(session);
+
+    // Reset player score for new session/map
+    const player = usePlayerStore.getState().player;
+    if (player) {
+      usePlayerStore.getState().updatePlayer({
+        score: 0,
+        stats: {
+          ...player.stats,
+          cellsRevealed: 0,
+          correctFlags: 0,
+          minesTriggered: 0,
+          chainReveals: 0,
+          itemsCollected: 0,
+          score: 0,
+        },
+      });
+    }
+
     useGameStore.getState().addNotification({
       id: crypto.randomUUID(),
       type: 'success',

@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useSocket } from './hooks/useSocket';
 import { usePlayerStore } from './stores/playerStore';
 import { useAchievements } from './hooks/useAchievements';
@@ -18,20 +17,7 @@ function App() {
 
   const player = usePlayerStore((s) => s.player);
 
-  // Increment games played when session ends
-  useEffect(() => {
-    const incrementGamesPlayed = usePlayerStore.getState().incrementGamesPlayed;
-    const addToTotalScore = usePlayerStore.getState().addToTotalScore;
-
-    // This would be called when session ends
-    // For now, we just track when player disconnects
-    return () => {
-      if (player) {
-        addToTotalScore(player.score);
-        incrementGamesPlayed();
-      }
-    };
-  }, [player]);
+  // Score tracking is handled in useSocket.ts via session:ending event
 
   // Show login if no player
   if (!player) {

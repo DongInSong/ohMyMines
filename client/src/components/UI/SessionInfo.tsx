@@ -2,6 +2,21 @@ import { useGameStore } from '../../stores/gameStore';
 import { usePlayerStore } from '../../stores/playerStore';
 import { SESSION } from 'shared';
 
+function TotalScoreDisplay() {
+  const totalScore = usePlayerStore((s) => s.totalScore);
+  const gamesPlayed = usePlayerStore((s) => s.gamesPlayed);
+
+  if (totalScore === 0 && gamesPlayed === 0) return null;
+
+  return (
+    <div className="mt-2 flex items-center gap-3 text-[10px] text-game-text-muted">
+      <span className="font-mono">Total: {totalScore.toLocaleString()}</span>
+      <span className="text-game-border">|</span>
+      <span className="font-mono">Games: {gamesPlayed}</span>
+    </div>
+  );
+}
+
 export function SessionInfo() {
   const session = useGameStore((s) => s.session);
   const isConnected = useGameStore((s) => s.isConnected);
@@ -53,8 +68,10 @@ export function SessionInfo() {
           </div>
           <div className="flex items-center gap-2 mt-1">
             <span className="w-1 h-1 bg-game-accent rotate-45" />
-            <span className="text-[10px] text-game-accent uppercase tracking-[0.15em] font-semibold">Score</span>
+            <span className="text-[10px] text-game-accent uppercase tracking-[0.15em] font-semibold">Session Score</span>
           </div>
+          {/* Total Score */}
+          <TotalScoreDisplay />
           {/* Decorative line */}
           <div className="absolute -bottom-2 left-0 w-full h-px bg-gradient-to-r from-game-accent/30 via-game-border to-transparent" />
         </div>
