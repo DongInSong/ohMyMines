@@ -18,6 +18,8 @@ export class PlayerManager {
   private players: Map<string, Player> = new Map();
   private socketToPlayer: Map<string, string> = new Map();
   private effectTimers: Map<string, NodeJS.Timeout> = new Map(); // playerId:itemId -> timeout
+  private skillTimers: Map<string, NodeJS.Timeout> = new Map(); // playerId:skillId -> timeout
+  private feverTimers: Map<string, NodeJS.Timeout> = new Map(); // playerId -> fever timeout
 
   createPlayer(socketId: string, name: string, color?: string, savedData?: SavedPlayerData): Player {
     const id = savedData?.id ?? uuidv4();
@@ -87,11 +89,41 @@ export class PlayerManager {
     const player = this.players.get(playerId);
     if (player) {
       player.isOnline = false;
+      // Clear all timers for this player
+      this.clearPlayerTimers(playerId);
     }
 
     this.socketToPlayer.delete(socketId);
     // Don't remove from players map - keep their data for session
     return player;
+  }
+
+  /**
+   * Clear all timers associated with a player
+   */
+  private clearPlayerTimers(playerId: string): void {
+    // Clear effect timers
+    for (const [key, timer] of this.effectTimers) {
+      if (key.startsWith(playerId + ':')) {
+        clearTimeout(timer);
+        this.effectTimers.delete(key);
+      }
+    }
+
+    // Clear skill timers
+    for (const [key, timer] of this.skillTimers) {
+      if (key.startsWith(playerId + ':')) {
+        clearTimeout(timer);
+        this.skillTimers.delete(key);
+      }
+    }
+
+    // Clear fever timer
+    const feverTimer = this.feverTimers.get(playerId);
+    if (feverTimer) {
+      clearTimeout(feverTimer);
+      this.feverTimers.delete(playerId);
+    }
   }
 
   updatePosition(playerId: string, position: Position): void {
@@ -155,11 +187,21 @@ export class PlayerManager {
     if (skill.duration) {
       skillState.activeUntil = Date.now() + skill.duration * 1000;
 
-      // Auto-deactivate after duration
-      setTimeout(() => {
+      // Clear any existing timer for this skill
+      const timerKey = `${playerId}:${skillId}`;
+      const existingTimer = this.skillTimers.get(timerKey);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      // Auto-deactivate after duration (with tracked timer)
+      const timer = setTimeout(() => {
         skillState.isActive = false;
         skillState.activeUntil = undefined;
+        this.skillTimers.delete(timerKey);
       }, skill.duration * 1000);
+
+      this.skillTimers.set(timerKey, timer);
     }
 
     return true;
@@ -313,6 +355,9 @@ export class PlayerManager {
   }
 
   // Combo Management
+  // Buffer for network latency (50ms) to prevent unfair combo resets
+  private static readonly COMBO_LATENCY_BUFFER_MS = 50;
+
   updateCombo(playerId: string): { combo: ComboState; feverTriggered: boolean } {
     const player = this.players.get(playerId);
     if (!player) {
@@ -325,8 +370,9 @@ export class PlayerManager {
     const now = Date.now();
     const timeSinceLastReveal = now - player.combo.lastRevealTime;
 
-    // Check if combo should reset
-    if (timeSinceLastReveal > COMBO.TIMEOUT && player.combo.count > 0) {
+    // Check if combo should reset (with latency buffer)
+    const effectiveTimeout = COMBO.TIMEOUT + PlayerManager.COMBO_LATENCY_BUFFER_MS;
+    if (timeSinceLastReveal > effectiveTimeout && player.combo.count > 0) {
       player.combo = {
         count: 0,
         multiplier: 1,
@@ -356,10 +402,19 @@ export class PlayerManager {
       player.combo.feverEndTime = now + COMBO.FEVER_DURATION;
       feverTriggered = true;
 
-      // Auto-end fever
-      setTimeout(() => {
+      // Clear any existing fever timer
+      const existingFeverTimer = this.feverTimers.get(playerId);
+      if (existingFeverTimer) {
+        clearTimeout(existingFeverTimer);
+      }
+
+      // Auto-end fever (with tracked timer)
+      const feverTimer = setTimeout(() => {
         this.endFever(playerId);
+        this.feverTimers.delete(playerId);
       }, COMBO.FEVER_DURATION);
+
+      this.feverTimers.set(playerId, feverTimer);
     }
 
     return { combo: player.combo, feverTriggered };
@@ -421,6 +476,20 @@ export class PlayerManager {
     return this.players.get(playerId)?.guildId;
   }
 
+  // Socket Mapping
+  getSocketIdByPlayerId(playerId: string): string | undefined {
+    for (const [socketId, pId] of this.socketToPlayer.entries()) {
+      if (pId === playerId) {
+        return socketId;
+      }
+    }
+    return undefined;
+  }
+
+  getSocketPlayerMap(): Map<string, string> {
+    return new Map(this.socketToPlayer);
+  }
+
   // Utility
   getAllPlayers(): Player[] {
     return Array.from(this.players.values());
@@ -450,6 +519,9 @@ export class PlayerManager {
 
   // Reset all players for new session
   resetForNewSession(): void {
+    // Clear all timers first
+    this.clearAllTimers();
+
     for (const player of this.players.values()) {
       player.score = 0;
       player.stats = {
@@ -465,6 +537,12 @@ export class PlayerManager {
       player.cooldownReduction = 0;
       player.scoreMultiplier = 1;
       player.isGhostMode = false;
+      player.combo = {
+        count: 0,
+        multiplier: 1,
+        lastRevealTime: 0,
+        isFever: false,
+      };
 
       // Reset skill cooldowns
       for (const skillId of Object.keys(player.skills) as SkillType[]) {
@@ -475,5 +553,35 @@ export class PlayerManager {
         };
       }
     }
+  }
+
+  /**
+   * Clear all timers (for session reset or shutdown)
+   */
+  private clearAllTimers(): void {
+    // Clear all effect timers
+    for (const timer of this.effectTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.effectTimers.clear();
+
+    // Clear all skill timers
+    for (const timer of this.skillTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.skillTimers.clear();
+
+    // Clear all fever timers
+    for (const timer of this.feverTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.feverTimers.clear();
+  }
+
+  /**
+   * Cleanup method for graceful shutdown
+   */
+  cleanup(): void {
+    this.clearAllTimers();
   }
 }

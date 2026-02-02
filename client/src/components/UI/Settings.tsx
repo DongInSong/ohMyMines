@@ -39,8 +39,9 @@ export function Settings() {
   // Toggle switch component
   const ToggleSwitch = ({ enabled, onClick }: { enabled: boolean; onClick: () => void }) => (
     <button
+      type="button"
       onClick={onClick}
-      className={`relative w-10 h-5 transition-colors ${
+      className={`relative w-10 h-5 transition-colors cursor-pointer ${
         enabled ? 'bg-game-accent/30' : 'bg-game-primary'
       }`}
       style={{
@@ -92,10 +93,10 @@ export function Settings() {
                 </div>
 
                 {/* Sound Enabled */}
-                <label className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center justify-between group">
                   <span className="text-sm text-game-text-dim group-hover:text-game-text transition-colors">Sound Effects</span>
                   <ToggleSwitch enabled={settings.soundEnabled} onClick={() => handleToggle('soundEnabled')} />
-                </label>
+                </div>
 
                 {/* SFX Volume */}
                 <div className="space-y-2">
@@ -130,10 +131,10 @@ export function Settings() {
                 </div>
 
                 {/* Music Toggle */}
-                <label className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center justify-between group">
                   <span className="text-sm text-game-text-dim group-hover:text-game-text transition-colors">Music</span>
                   <ToggleSwitch enabled={isMusicPlaying} onClick={toggleMusic} />
-                </label>
+                </div>
 
                 {/* Music Volume */}
                 <div className="space-y-2">
@@ -175,10 +176,10 @@ export function Settings() {
                 </div>
 
                 {/* Show Other Cursors */}
-                <label className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center justify-between group">
                   <span className="text-sm text-game-text-dim group-hover:text-game-text transition-colors">Show Other Cursors</span>
                   <ToggleSwitch enabled={settings.showOtherCursors} onClick={() => handleToggle('showOtherCursors')} />
-                </label>
+                </div>
 
                 {/* Cursor Update Rate */}
                 <div className="space-y-2">
@@ -213,16 +214,16 @@ export function Settings() {
                 </div>
 
                 {/* Chat Enabled */}
-                <label className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center justify-between group">
                   <span className="text-sm text-game-text-dim group-hover:text-game-text transition-colors">Show Chat</span>
                   <ToggleSwitch enabled={settings.chatEnabled} onClick={() => handleToggle('chatEnabled')} />
-                </label>
+                </div>
 
                 {/* Notifications Enabled */}
-                <label className="flex items-center justify-between cursor-pointer group">
+                <div className="flex items-center justify-between group">
                   <span className="text-sm text-game-text-dim group-hover:text-game-text transition-colors">Show Notifications</span>
                   <ToggleSwitch enabled={settings.notificationsEnabled} onClick={() => handleToggle('notificationsEnabled')} />
-                </label>
+                </div>
               </div>
 
               {/* Data Section */}

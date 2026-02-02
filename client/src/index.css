@@ -20,7 +20,7 @@
   --game-border-accent: rgba(26, 26, 26, 0.3);
   --game-text: #171717;
   --game-text-dim: #404040;
-  --game-text-muted: #737373;
+  --game-text-muted: #666666; /* Improved contrast (was #737373) - WCAG AA compliant */
 
   /* Topography / contour lines colors */
   --contour-1: rgba(0, 0, 0, 0.04);
@@ -1892,4 +1892,167 @@ input[type="range"].slider:disabled {
   height: 4px;
   background: var(--game-accent);
   clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+/* ====== ACCESSIBILITY ====== */
+
+/* Improved color contrast for text-muted (WCAG AA compliance) */
+.a11y-muted {
+  color: #666666; /* 4.5:1 contrast ratio with white background */
+}
+
+/* Focus visible styles for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--game-accent);
+  outline-offset: 2px;
+}
+
+/* Remove default focus outline when not using keyboard */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Enhanced focus for interactive elements */
+.game-button:focus-visible,
+.game-input:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--game-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.1);
+}
+
+/* Skip link for keyboard navigation */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--game-accent);
+  color: white;
+  padding: 8px 16px;
+  z-index: 100;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --game-border: #000000;
+    --game-text-muted: #333333;
+  }
+
+  .game-panel {
+    border-width: 2px;
+  }
+
+  .game-button {
+    border: 2px solid currentColor;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Disable specific animations */
+  .scan-overlay::after,
+  .data-stream,
+  .status-dot {
+    animation: none !important;
+  }
+
+  /* Keep essential state changes */
+  .game-button:hover,
+  .game-input:focus {
+    transition: none;
+  }
+}
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ARIA labels for skill bar and notifications */
+[role="toolbar"] {
+  display: flex;
+  gap: 8px;
+}
+
+[role="alert"] {
+  border-left-width: 4px;
+}
+
+[role="status"] {
+  /* Announce changes without interrupting */
+}
+
+/* Touch target size (minimum 44x44px for accessibility) */
+@media (pointer: coarse) {
+  .game-button,
+  button,
+  [role="button"],
+  a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Skill buttons on mobile */
+  .skill-button {
+    min-width: 48px;
+    min-height: 48px;
+  }
+}
+
+/* Color blind friendly indicators */
+.colorblind-pattern {
+  /* Add patterns in addition to colors */
+  background-image: url("data:image/svg+xml,%3Csvg width='6' height='6' viewBox='0 0 6 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.15'%3E%3Cpath d='M5 0h1L0 6V5zM6 5v1H5z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Error state with icon, not just color */
+.error-state {
+  border-left: 4px solid var(--game-danger);
+}
+
+.error-state::before {
+  content: '!';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: var(--game-danger);
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+/* Success state with icon */
+.success-state::before {
+  content: '✓';
+  color: var(--game-success);
+  margin-right: 8px;
 }

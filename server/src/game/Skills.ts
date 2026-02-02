@@ -64,7 +64,9 @@ export class SkillManager {
         break;
 
       case 'mark':
-        const markedPosition = this.handleMark(position, 5);
+        // Use skill.range instead of hardcoded value (default to 5 for backwards compat)
+        const markRange = skill.range ?? 5;
+        const markedPosition = this.handleMark(position, markRange);
         if (markedPosition) {
           affectedCells = [markedPosition];
           message = 'Mine marked!';
@@ -115,6 +117,9 @@ export class SkillManager {
   }
 
   // Chain reveal: when active, revealing a number cell also reveals safe neighbors
+  // Limited to prevent infinite chain reactions
+  private static readonly MAX_CHAIN_REVEAL_CELLS = 100;
+
   performChainReveal(
     cells: Cell[],
     playerId: string
@@ -125,13 +130,24 @@ export class SkillManager {
 
     const additionalCells: Cell[] = [];
     const revealed = new Set<string>(cells.map(c => `${c.x},${c.y}`));
+    const totalLimit = SkillManager.MAX_CHAIN_REVEAL_CELLS;
 
     for (const cell of cells) {
+      // Stop if we've reached the limit
+      if (cells.length + additionalCells.length >= totalLimit) {
+        break;
+      }
+
       if (cell.adjacentMines > 0) {
-        // Reveal safe neighbors of numbered cells
+        // Reveal safe neighbors of numbered cells (only direct neighbors, not flood fill)
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
             if (dx === 0 && dy === 0) continue;
+
+            // Stop if we've reached the limit
+            if (cells.length + additionalCells.length >= totalLimit) {
+              break;
+            }
 
             const nx = cell.x + dx;
             const ny = cell.y + dy;
@@ -140,9 +156,12 @@ export class SkillManager {
             if (!revealed.has(key)) {
               const neighborCell = this.gameMap.getCell(nx, ny);
               if (neighborCell && !neighborCell.isMine && neighborCell.state === 'hidden') {
-                const result = this.gameMap.revealCell(nx, ny, playerId);
-                additionalCells.push(...result.cells);
-                result.cells.forEach(c => revealed.add(`${c.x},${c.y}`));
+                // Only reveal the direct neighbor cell, not trigger another flood fill
+                neighborCell.state = 'revealed';
+                neighborCell.revealedBy = playerId;
+                neighborCell.revealedAt = Date.now();
+                additionalCells.push({ ...neighborCell });
+                revealed.add(key);
               }
             }
           }

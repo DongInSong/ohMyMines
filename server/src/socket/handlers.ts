@@ -24,6 +24,9 @@ import {
 } from '../game/index.js';
 import { TreasureManager } from '../game/Treasure.js';
 import { saveSessionHistory, getSessionHistory, getSessionDetail } from '../supabase/sessionHistory.js';
+import { GameRateLimiters, checkRateLimit } from '../utils/RateLimiter.js';
+import { positionValidator } from '../utils/PositionValidator.js';
+import { InputValidator } from '../utils/InputValidator.js';
 
 export class SocketHandlers {
   private cursorUpdateInterval: NodeJS.Timeout | null = null;
@@ -109,14 +112,30 @@ export class SocketHandlers {
     socket: Socket,
     data: { name: string; color: string; savedData?: unknown }
   ): void {
-    console.log('[Server] Player joining:', { name: data.name, socketId: socket.id });
+    // Validate inputs
+    const nameResult = InputValidator.validatePlayerName(data.name);
+    if (!nameResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: nameResult.error });
+      return;
+    }
+
+    const colorResult = InputValidator.validateColor(data.color);
+    if (!colorResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: colorResult.error });
+      return;
+    }
+
+    console.log('[Server] Player joining:', { name: nameResult.sanitized, socketId: socket.id });
 
     const player = this.playerManager.createPlayer(
       socket.id,
-      data.name,
-      data.color,
+      nameResult.sanitized!,
+      colorResult.sanitized!,
       data.savedData as any
     );
+
+    // Initialize position validator for this player
+    positionValidator.initializePlayer(player.id, player.position);
 
     console.log('[Server] Player created:', { id: player.id, name: player.name });
 
@@ -167,6 +186,7 @@ export class SocketHandlers {
     const player = this.playerManager.removePlayer(socket.id);
     if (player) {
       this.playerCursors.delete(player.id);
+      positionValidator.removePlayer(player.id);
 
       this.io.emit(SERVER_EVENTS.PLAYER_LEFT, {
         playerId: player.id,
@@ -186,12 +206,24 @@ export class SocketHandlers {
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) return;
 
-    this.playerManager.updatePosition(player.id, position);
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.positionUpdate, socket.id, '위치 업데이트');
+    if (!rateCheck.allowed) return;
+
+    // Validate position
+    const posResult = InputValidator.validatePosition(position);
+    if (!posResult.valid) return;
+
+    // Validate movement (anti-cheat)
+    const validationResult = positionValidator.validatePosition(player.id, posResult.position!);
+    const finalPosition = validationResult.correctedPosition || posResult.position!;
+
+    this.playerManager.updatePosition(player.id, finalPosition);
 
     // Update cursor
     const cursor = this.playerCursors.get(player.id);
     if (cursor) {
-      cursor.position = position;
+      cursor.position = finalPosition;
       cursor.lastUpdate = Date.now();
     }
   }
@@ -199,7 +231,21 @@ export class SocketHandlers {
   // ==================== Game Action Handlers ====================
 
   private handleCellReveal(socket: Socket, position: Position): void {
-    console.log('[Server] cell:reveal received', { position, socketId: socket.id });
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.cellReveal, socket.id, '셀 공개');
+    if (!rateCheck.allowed) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: rateCheck.message });
+      return;
+    }
+
+    // Validate position
+    const posResult = InputValidator.validatePosition(position);
+    if (!posResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: posResult.error });
+      return;
+    }
+
+    console.log('[Server] cell:reveal received', { position: posResult.position, socketId: socket.id });
 
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) {
@@ -213,7 +259,7 @@ export class SocketHandlers {
       return;
     }
 
-    const result = gameMap.revealCell(position.x, position.y, player.id);
+    const result = gameMap.revealCell(posResult.position!.x, posResult.position!.y, player.id);
 
     if (result.hitMine) {
       // Check for shield
@@ -321,6 +367,17 @@ export class SocketHandlers {
         score: actualScore,
       });
 
+      // Notify player if flood fill was truncated
+      if (result.truncated) {
+        socket.emit(SERVER_EVENTS.NOTIFICATION_BROADCAST, {
+          id: uuidv4(),
+          type: 'info',
+          message: `연속 공개가 최대 ${cells.length}개로 제한되었습니다. 주변을 계속 탐색해주세요.`,
+          timestamp: Date.now(),
+          duration: 3000,
+        });
+      }
+
       // Check for treasure collection
       for (const cell of cells) {
         const treasure = this.treasureManager.getTreasureNearPosition(cell, 0);
@@ -362,13 +419,27 @@ export class SocketHandlers {
   }
 
   private handleCellFlag(socket: Socket, position: Position): void {
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.cellFlag, socket.id, '깃발');
+    if (!rateCheck.allowed) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: rateCheck.message });
+      return;
+    }
+
+    // Validate position
+    const posResult = InputValidator.validatePosition(position);
+    if (!posResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: posResult.error });
+      return;
+    }
+
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) return;
 
     const gameMap = this.sessionManager.getGameMap();
     if (!gameMap || !this.sessionManager.isActive()) return;
 
-    const cell = gameMap.flagCell(position.x, position.y, player.id);
+    const cell = gameMap.flagCell(posResult.position!.x, posResult.position!.y, player.id);
     if (!cell) return;
 
     // Check if flag is correct
@@ -384,10 +455,18 @@ export class SocketHandlers {
   }
 
   private handleChunkRequest(socket: Socket, coord: ChunkCoord): void {
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.chunkRequest, socket.id, '청크 요청');
+    if (!rateCheck.allowed) return;
+
+    // Validate chunk coord
+    const coordResult = InputValidator.validateChunkCoord(coord);
+    if (!coordResult.valid) return;
+
     const gameMap = this.sessionManager.getGameMap();
     if (!gameMap) return;
 
-    const chunk = gameMap.serializeChunk(coord);
+    const chunk = gameMap.serializeChunk(coordResult.coord!);
     if (chunk) {
       socket.emit(SERVER_EVENTS.CHUNK_DATA, { chunk });
     }
@@ -399,10 +478,35 @@ export class SocketHandlers {
     socket: Socket,
     data: { skillId: SkillType; targetPosition?: Position }
   ): void {
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.skillUse, socket.id, '스킬 사용');
+    if (!rateCheck.allowed) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: rateCheck.message });
+      return;
+    }
+
+    // Validate skill ID
+    const skillResult = InputValidator.validateSkillId(data.skillId);
+    if (!skillResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: skillResult.error });
+      return;
+    }
+
+    // Validate target position if provided
+    let targetPosition = data.targetPosition;
+    if (targetPosition) {
+      const posResult = InputValidator.validatePosition(targetPosition);
+      if (!posResult.valid) {
+        socket.emit(SERVER_EVENTS.ERROR, { message: posResult.error });
+        return;
+      }
+      targetPosition = posResult.position;
+    }
+
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) return;
 
-    const result = this.skillManager.useSkill(player.id, data.skillId, data.targetPosition);
+    const result = this.skillManager.useSkill(player.id, skillResult.skillId!, targetPosition);
 
     socket.emit(SERVER_EVENTS.SKILL_USED, result);
 
@@ -458,10 +562,24 @@ export class SocketHandlers {
   }
 
   private handleItemUse(socket: Socket, data: { itemId: ItemType }): void {
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.itemUse, socket.id, '아이템 사용');
+    if (!rateCheck.allowed) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: rateCheck.message });
+      return;
+    }
+
+    // Validate item ID
+    const itemResult = InputValidator.validateItemId(data.itemId);
+    if (!itemResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: itemResult.error });
+      return;
+    }
+
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) return;
 
-    const result = this.itemManager.useItem(player.id, data.itemId);
+    const result = this.itemManager.useItem(player.id, itemResult.itemId!);
 
     if (result.success) {
       // Send updated inventory to the player
@@ -505,10 +623,41 @@ export class SocketHandlers {
     socket: Socket,
     data: { name: string; tag: string; color: string }
   ): void {
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.guildAction, socket.id, '길드 생성');
+    if (!rateCheck.allowed) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: rateCheck.message });
+      return;
+    }
+
+    // Validate inputs
+    const nameResult = InputValidator.validateGuildName(data.name);
+    if (!nameResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: nameResult.error });
+      return;
+    }
+
+    const tagResult = InputValidator.validateGuildTag(data.tag);
+    if (!tagResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: tagResult.error });
+      return;
+    }
+
+    const colorResult = InputValidator.validateColor(data.color);
+    if (!colorResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: colorResult.error });
+      return;
+    }
+
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) return;
 
-    const result = this.guildManager.createGuild(player.id, data.name, data.tag, data.color);
+    const result = this.guildManager.createGuild(
+      player.id,
+      nameResult.sanitized!,
+      tagResult.sanitized!,
+      colorResult.sanitized!
+    );
 
     if (result.success && result.guild) {
       this.io.emit(SERVER_EVENTS.GUILD_CREATED, result.guild);
@@ -576,15 +725,9 @@ export class SocketHandlers {
 
     if (result.success && result.invite) {
       // Find target player's socket and send invite
-      const targetPlayer = this.playerManager.getPlayer(data.playerId);
-      if (targetPlayer) {
-        // Find socket by iterating (in production, maintain a map)
-        for (const [socketId, playerId] of this.getSocketPlayerMap()) {
-          if (playerId === data.playerId) {
-            this.io.to(socketId).emit(SERVER_EVENTS.GUILD_INVITE, result.invite);
-            break;
-          }
-        }
+      const targetSocketId = this.getSocketIdForPlayer(data.playerId);
+      if (targetSocketId) {
+        this.io.to(targetSocketId).emit(SERVER_EVENTS.GUILD_INVITE, result.invite);
       }
     } else {
       socket.emit(SERVER_EVENTS.ERROR, { message: result.error });
@@ -611,13 +754,14 @@ export class SocketHandlers {
     }
   }
 
-  // Helper to get socket-player mapping (simplified)
+  // Helper to get socket-player mapping
   private getSocketPlayerMap(): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const player of this.playerManager.getAllPlayers()) {
-      // In a real implementation, maintain this mapping properly
-    }
-    return map;
+    return this.playerManager.getSocketPlayerMap();
+  }
+
+  // Helper to get socket ID for a specific player
+  private getSocketIdForPlayer(playerId: string): string | undefined {
+    return this.playerManager.getSocketIdByPlayerId(playerId);
   }
 
   // ==================== Chat Handlers ====================
@@ -626,16 +770,25 @@ export class SocketHandlers {
     socket: Socket,
     data: { content: string; isEmoji: boolean; guildOnly?: boolean }
   ): void {
+    // Rate limiting
+    const rateCheck = checkRateLimit(GameRateLimiters.chat, socket.id, '채팅');
+    if (!rateCheck.allowed) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: rateCheck.message });
+      return;
+    }
+
     const player = this.playerManager.getPlayerBySocket(socket.id);
     if (!player) return;
 
-    // Validate content
-    if (!data.content || data.content.length > NETWORK.MAX_CHAT_MESSAGE_LENGTH) {
+    // Validate content using InputValidator
+    const chatResult = InputValidator.validateChatMessage(data.content, data.isEmoji);
+    if (!chatResult.valid) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: chatResult.error });
       return;
     }
 
     // If emoji, validate it's in allowed list
-    if (data.isEmoji && !EMOJI_REACTIONS.includes(data.content)) {
+    if (data.isEmoji && !EMOJI_REACTIONS.includes(chatResult.content!)) {
       return;
     }
 
@@ -644,7 +797,7 @@ export class SocketHandlers {
       playerId: player.id,
       playerName: player.name,
       playerColor: player.color,
-      content: data.content,
+      content: chatResult.content!,
       timestamp: Date.now(),
       isEmoji: data.isEmoji,
       guildOnly: data.guildOnly,

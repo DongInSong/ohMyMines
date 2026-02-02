@@ -1,9 +1,10 @@
-// Ambient/New Age Music Generator using Web Audio API
-// Creates procedural background music without external files
+// Lo-fi Chill Music Generator using Web Audio API
+// Creates procedural background music for a relaxed gaming atmosphere
 
 class MusicManager {
   private audioContext: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
   private isPlaying: boolean = false;
   private volume: number = 0.5;
   private enabled: boolean = true;
@@ -11,11 +12,24 @@ class MusicManager {
   // Active nodes for cleanup
   private activeOscillators: OscillatorNode[] = [];
   private activeGains: GainNode[] = [];
-  private intervals: NodeJS.Timeout[] = [];
+  private activeBufferSources: AudioBufferSourceNode[] = [];
+  private intervals: (NodeJS.Timeout | number)[] = [];
 
-  // Musical scales (pentatonic for pleasant sound)
-  private scale = [0, 2, 4, 7, 9]; // C pentatonic: C, D, E, G, A
-  private baseNote = 48; // C3 MIDI note
+  // Musical configuration - C minor pentatonic with extensions
+  private chordProgressions = [
+    [48, 51, 55, 58], // Cm7
+    [46, 50, 53, 58], // Bb maj7
+    [53, 56, 60, 63], // Fm7
+    [51, 55, 58, 63], // Eb maj7
+  ];
+  private currentChordIndex = 0;
+
+  // Melodic scale (C minor pentatonic)
+  private melodyNotes = [60, 63, 65, 67, 70, 72, 75, 77];
+
+  // Tempo
+  private bpm = 75;
+  private beatDuration = 60 / this.bpm;
 
   private getContext(): AudioContext {
     if (!this.audioContext) {
@@ -31,11 +45,6 @@ class MusicManager {
     return 440 * Math.pow(2, (midi - 69) / 12);
   }
 
-  private getRandomNote(octaveOffset: number = 0): number {
-    const scaleIndex = Math.floor(Math.random() * this.scale.length);
-    return this.baseNote + this.scale[scaleIndex] + (octaveOffset * 12);
-  }
-
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
@@ -46,7 +55,11 @@ class MusicManager {
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(1, volume));
     if (this.masterGain) {
-      this.masterGain.gain.setValueAtTime(this.volume * 0.3, this.getContext().currentTime);
+      this.masterGain.gain.setTargetAtTime(
+        this.volume * 0.4,
+        this.getContext().currentTime,
+        0.1
+      );
     }
   }
 
@@ -55,18 +68,34 @@ class MusicManager {
 
     const ctx = this.getContext();
 
-    // Master gain
+    // Compressor for glue
+    this.compressor = ctx.createDynamicsCompressor();
+    this.compressor.threshold.setValueAtTime(-24, ctx.currentTime);
+    this.compressor.knee.setValueAtTime(30, ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(4, ctx.currentTime);
+    this.compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+    this.compressor.release.setValueAtTime(0.25, ctx.currentTime);
+    this.compressor.connect(ctx.destination);
+
+    // Master gain with fade in
     this.masterGain = ctx.createGain();
     this.masterGain.gain.setValueAtTime(0, ctx.currentTime);
-    this.masterGain.gain.linearRampToValueAtTime(this.volume * 0.3, ctx.currentTime + 2);
-    this.masterGain.connect(ctx.destination);
+    this.masterGain.gain.linearRampToValueAtTime(
+      this.volume * 0.4,
+      ctx.currentTime + 3
+    );
+    this.masterGain.connect(this.compressor);
 
     this.isPlaying = true;
+    this.currentChordIndex = 0;
 
-    // Start ambient layers
-    this.startPadLayer();
-    this.startArpeggioLayer();
-    this.startTextureLayer();
+    // Start all layers
+    this.startDroneLayer();
+    this.startChordLayer();
+    this.startBassLayer();
+    this.startRhythmLayer();
+    this.startMelodyLayer();
+    this.startAtmosphereLayer();
   }
 
   stop(): void {
@@ -76,19 +105,33 @@ class MusicManager {
 
     // Fade out
     if (this.masterGain) {
-      this.masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1);
+      this.masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 2);
     }
 
-    // Clear intervals
-    this.intervals.forEach((interval) => clearInterval(interval));
+    // Clear all intervals
+    this.intervals.forEach((interval) => {
+      if (typeof interval === 'number') {
+        clearTimeout(interval);
+        clearInterval(interval);
+      } else {
+        clearTimeout(interval);
+        clearInterval(interval);
+      }
+    });
     this.intervals = [];
 
-    // Stop oscillators after fade
+    // Cleanup after fade
     setTimeout(() => {
       this.activeOscillators.forEach((osc) => {
         try {
           osc.stop();
           osc.disconnect();
+        } catch (e) {}
+      });
+      this.activeBufferSources.forEach((src) => {
+        try {
+          src.stop();
+          src.disconnect();
         } catch (e) {}
       });
       this.activeGains.forEach((gain) => {
@@ -98,79 +141,141 @@ class MusicManager {
       });
 
       this.activeOscillators = [];
+      this.activeBufferSources = [];
       this.activeGains = [];
 
       if (this.masterGain) {
         this.masterGain.disconnect();
         this.masterGain = null;
       }
-    }, 1500);
+      if (this.compressor) {
+        this.compressor.disconnect();
+        this.compressor = null;
+      }
+    }, 2500);
 
     this.isPlaying = false;
   }
 
-  // Warm pad layer - slow evolving chords
-  private startPadLayer(): void {
+  // Deep sub drone for warmth
+  private startDroneLayer(): void {
     const ctx = this.getContext();
     if (!this.masterGain) return;
 
-    const playPadChord = () => {
+    const createDrone = () => {
       if (!this.isPlaying || !this.masterGain) return;
 
-      // Pick 3 notes for a chord
-      const root = this.getRandomNote(0);
-      const notes = [root, root + this.scale[2], root + this.scale[4]];
+      const chord = this.chordProgressions[this.currentChordIndex];
+      const rootFreq = this.midiToFreq(chord[0] - 24); // 2 octaves down
 
-      notes.forEach((note, i) => {
+      // Sub oscillator
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(rootFreq, ctx.currentTime);
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(120, ctx.currentTime);
+
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.35, ctx.currentTime + 2);
+      gain.gain.setValueAtTime(0.35, ctx.currentTime + this.beatDuration * 6);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + this.beatDuration * 8);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain!);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + this.beatDuration * 8 + 0.5);
+
+      this.activeOscillators.push(osc);
+      this.activeGains.push(gain);
+    };
+
+    createDrone();
+    const interval = setInterval(() => {
+      this.currentChordIndex =
+        (this.currentChordIndex + 1) % this.chordProgressions.length;
+      createDrone();
+    }, this.beatDuration * 8 * 1000);
+    this.intervals.push(interval);
+  }
+
+  // Warm pad chords with filter movement
+  private startChordLayer(): void {
+    const ctx = this.getContext();
+    if (!this.masterGain) return;
+
+    const playChord = () => {
+      if (!this.isPlaying || !this.masterGain) return;
+
+      const chord = this.chordProgressions[this.currentChordIndex];
+
+      chord.forEach((note, i) => {
         const freq = this.midiToFreq(note);
 
-        // Multiple detuned oscillators for warmth
-        for (let d = -1; d <= 1; d++) {
+        // Detuned saw waves for warmth
+        [-0.1, 0, 0.1].forEach((detune) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           const filter = ctx.createBiquadFilter();
 
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq + d * 0.5, ctx.currentTime);
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          osc.detune.setValueAtTime(detune * 100, ctx.currentTime);
 
           filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(800, ctx.currentTime);
-          filter.Q.setValueAtTime(1, ctx.currentTime);
+          filter.frequency.setValueAtTime(400, ctx.currentTime);
+          filter.frequency.linearRampToValueAtTime(
+            800 + Math.random() * 400,
+            ctx.currentTime + this.beatDuration * 4
+          );
+          filter.frequency.linearRampToValueAtTime(
+            300,
+            ctx.currentTime + this.beatDuration * 8
+          );
+          filter.Q.setValueAtTime(2, ctx.currentTime);
 
-          // Slow attack and release
           gain.gain.setValueAtTime(0, ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 2);
-          gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 6);
-          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 10);
+          gain.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.5);
+          gain.gain.setValueAtTime(0.06, ctx.currentTime + this.beatDuration * 6);
+          gain.gain.linearRampToValueAtTime(0, ctx.currentTime + this.beatDuration * 8);
 
           osc.connect(filter);
           filter.connect(gain);
           gain.connect(this.masterGain!);
 
           osc.start(ctx.currentTime);
-          osc.stop(ctx.currentTime + 10);
+          osc.stop(ctx.currentTime + this.beatDuration * 8 + 0.5);
 
           this.activeOscillators.push(osc);
           this.activeGains.push(gain);
-        }
+        });
       });
     };
 
-    playPadChord();
-    const interval = setInterval(playPadChord, 8000);
-    this.intervals.push(interval);
+    setTimeout(() => {
+      playChord();
+      const interval = setInterval(playChord, this.beatDuration * 8 * 1000);
+      this.intervals.push(interval);
+    }, 500);
   }
 
-  // Gentle arpeggio layer
-  private startArpeggioLayer(): void {
+  // Mellow bass line
+  private startBassLayer(): void {
     const ctx = this.getContext();
     if (!this.masterGain) return;
 
-    const playArpNote = () => {
+    const playBassNote = () => {
       if (!this.isPlaying || !this.masterGain) return;
 
-      const note = this.getRandomNote(1);
-      const freq = this.midiToFreq(note);
+      const chord = this.chordProgressions[this.currentChordIndex];
+      const bassNotes = [chord[0] - 12, chord[0] - 12, chord[2] - 12, chord[0] - 12];
+      const noteIndex = Math.floor((Date.now() / (this.beatDuration * 2000)) % 4);
+      const freq = this.midiToFreq(bassNotes[noteIndex]);
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -180,44 +285,266 @@ class MusicManager {
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(2000, ctx.currentTime);
+      filter.frequency.setValueAtTime(600, ctx.currentTime);
+      filter.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + this.beatDuration * 1.5);
 
       gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.1);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3);
+      gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + this.beatDuration * 1.8);
 
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(this.masterGain!);
 
       osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 3);
+      osc.stop(ctx.currentTime + this.beatDuration * 2);
 
       this.activeOscillators.push(osc);
       this.activeGains.push(gain);
     };
 
-    // Random intervals between notes
-    const scheduleNext = () => {
-      if (!this.isPlaying) return;
-      playArpNote();
-      const nextDelay = 500 + Math.random() * 1500;
-      const timeout = setTimeout(scheduleNext, nextDelay);
-      this.intervals.push(timeout as unknown as NodeJS.Timeout);
-    };
-
-    setTimeout(scheduleNext, 2000);
+    const interval = setInterval(playBassNote, this.beatDuration * 2 * 1000);
+    this.intervals.push(interval);
   }
 
-  // Soft ambient texture
-  private startTextureLayer(): void {
+  // Lo-fi drum pattern
+  private startRhythmLayer(): void {
     const ctx = this.getContext();
     if (!this.masterGain) return;
 
-    const playTexture = () => {
+    // Create noise buffer for hi-hat
+    const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+      noiseData[i] = Math.random() * 2 - 1;
+    }
+
+    const playKick = () => {
       if (!this.isPlaying || !this.masterGain) return;
 
-      const note = this.getRandomNote(2);
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.frequency.setValueAtTime(150, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.1);
+
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain!);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+
+      this.activeOscillators.push(osc);
+      this.activeGains.push(gain);
+    };
+
+    const playHihat = (accent: boolean = false) => {
+      if (!this.isPlaying || !this.masterGain) return;
+
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(8000, ctx.currentTime);
+
+      const gain = ctx.createGain();
+      const vol = accent ? 0.08 : 0.04;
+      gain.gain.setValueAtTime(vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain!);
+
+      noise.start(ctx.currentTime);
+      noise.stop(ctx.currentTime + 0.05);
+
+      this.activeBufferSources.push(noise);
+      this.activeGains.push(gain);
+    };
+
+    const playSnare = () => {
+      if (!this.isPlaying || !this.masterGain) return;
+
+      // Noise component
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer;
+
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(3000, ctx.currentTime);
+      noiseFilter.Q.setValueAtTime(1, ctx.currentTime);
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.12, ctx.currentTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(this.masterGain!);
+
+      noise.start(ctx.currentTime);
+      noise.stop(ctx.currentTime + 0.15);
+
+      // Tone component
+      const osc = ctx.createOscillator();
+      const oscGain = ctx.createGain();
+
+      osc.frequency.setValueAtTime(200, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.05);
+
+      oscGain.gain.setValueAtTime(0.1, ctx.currentTime);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+
+      osc.connect(oscGain);
+      oscGain.connect(this.masterGain!);
+
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.1);
+
+      this.activeBufferSources.push(noise);
+      this.activeOscillators.push(osc);
+      this.activeGains.push(noiseGain, oscGain);
+    };
+
+    // Drum pattern: simple lo-fi beat
+    let beatCount = 0;
+    const playBeat = () => {
+      if (!this.isPlaying) return;
+
+      const subBeat = beatCount % 8;
+
+      // Kick on 1 and 5
+      if (subBeat === 0 || subBeat === 4) {
+        playKick();
+      }
+
+      // Snare on 3 and 7
+      if (subBeat === 2 || subBeat === 6) {
+        playSnare();
+      }
+
+      // Hi-hat pattern with swing
+      if (subBeat % 2 === 0) {
+        playHihat(true);
+      } else if (Math.random() > 0.3) {
+        setTimeout(() => playHihat(false), this.beatDuration * 0.33 * 1000);
+      }
+
+      beatCount++;
+    };
+
+    setTimeout(() => {
+      const interval = setInterval(playBeat, (this.beatDuration / 2) * 1000);
+      this.intervals.push(interval);
+    }, this.beatDuration * 2 * 1000);
+  }
+
+  // Gentle melodic phrases
+  private startMelodyLayer(): void {
+    const ctx = this.getContext();
+    if (!this.masterGain) return;
+
+    const playMelodyPhrase = () => {
+      if (!this.isPlaying || !this.masterGain) return;
+      if (Math.random() > 0.4) return; // Only play sometimes
+
+      const phraseLength = 3 + Math.floor(Math.random() * 3);
+      let noteTime = ctx.currentTime;
+
+      for (let i = 0; i < phraseLength; i++) {
+        const noteIndex = Math.floor(Math.random() * this.melodyNotes.length);
+        const freq = this.midiToFreq(this.melodyNotes[noteIndex]);
+        const duration = this.beatDuration * (0.5 + Math.random() * 1);
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, noteTime);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(2000, noteTime);
+
+        gain.gain.setValueAtTime(0, noteTime);
+        gain.gain.linearRampToValueAtTime(0.08, noteTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, noteTime + duration);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.masterGain!);
+
+        osc.start(noteTime);
+        osc.stop(noteTime + duration + 0.1);
+
+        this.activeOscillators.push(osc);
+        this.activeGains.push(gain);
+
+        noteTime += duration;
+      }
+    };
+
+    const schedulePhrase = () => {
+      if (!this.isPlaying) return;
+      playMelodyPhrase();
+      const nextDelay = this.beatDuration * (4 + Math.random() * 8) * 1000;
+      const timeout = setTimeout(schedulePhrase, nextDelay);
+      this.intervals.push(timeout);
+    };
+
+    setTimeout(schedulePhrase, this.beatDuration * 8 * 1000);
+  }
+
+  // Vinyl crackle and atmosphere
+  private startAtmosphereLayer(): void {
+    const ctx = this.getContext();
+    if (!this.masterGain) return;
+
+    // Create vinyl crackle buffer
+    const crackleBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const crackleData = crackleBuffer.getChannelData(0);
+    for (let i = 0; i < crackleData.length; i++) {
+      // Sparse crackle
+      crackleData[i] = Math.random() > 0.997 ? (Math.random() - 0.5) * 0.5 : 0;
+    }
+
+    const playCrackle = () => {
+      if (!this.isPlaying || !this.masterGain) return;
+
+      const noise = ctx.createBufferSource();
+      noise.buffer = crackleBuffer;
+      noise.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(3000, ctx.currentTime);
+      filter.Q.setValueAtTime(0.5, ctx.currentTime);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain!);
+
+      noise.start(ctx.currentTime);
+
+      this.activeBufferSources.push(noise);
+      this.activeGains.push(gain);
+    };
+
+    // Ambient shimmer
+    const playShimmer = () => {
+      if (!this.isPlaying || !this.masterGain) return;
+      if (Math.random() > 0.3) return;
+
+      const chord = this.chordProgressions[this.currentChordIndex];
+      const note = chord[Math.floor(Math.random() * chord.length)] + 24;
       const freq = this.midiToFreq(note);
 
       const osc = ctx.createOscillator();
@@ -228,33 +555,26 @@ class MusicManager {
       osc.frequency.setValueAtTime(freq, ctx.currentTime);
 
       filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(1500, ctx.currentTime);
-      filter.frequency.linearRampToValueAtTime(500, ctx.currentTime + 5);
+      filter.frequency.setValueAtTime(3000, ctx.currentTime);
 
       gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 1);
-      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 5);
+      gain.gain.linearRampToValueAtTime(0.03, ctx.currentTime + 0.5);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 3);
 
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(this.masterGain!);
 
       osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 5);
+      osc.stop(ctx.currentTime + 3.5);
 
       this.activeOscillators.push(osc);
       this.activeGains.push(gain);
     };
 
-    const scheduleNext = () => {
-      if (!this.isPlaying) return;
-      playTexture();
-      const nextDelay = 3000 + Math.random() * 4000;
-      const timeout = setTimeout(scheduleNext, nextDelay);
-      this.intervals.push(timeout as unknown as NodeJS.Timeout);
-    };
-
-    setTimeout(scheduleNext, 4000);
+    playCrackle();
+    const shimmerInterval = setInterval(playShimmer, 2000);
+    this.intervals.push(shimmerInterval);
   }
 
   toggle(): void {

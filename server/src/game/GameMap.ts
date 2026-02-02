@@ -196,8 +196,12 @@ export class GameMap {
     return chunk.cells[ly][lx];
   }
 
-  revealCell(x: number, y: number, playerId: string): { cells: Cell[]; hitMine: boolean } {
-    const result: { cells: Cell[]; hitMine: boolean } = { cells: [], hitMine: false };
+  revealCell(x: number, y: number, playerId: string): { cells: Cell[]; hitMine: boolean; truncated: boolean } {
+    const result: { cells: Cell[]; hitMine: boolean; truncated: boolean } = {
+      cells: [],
+      hitMine: false,
+      truncated: false,
+    };
     const cell = this.getCell(x, y);
 
     if (!cell || cell.state !== 'hidden') return result;
@@ -253,6 +257,11 @@ export class GameMap {
           }
         }
       }
+    }
+
+    // Check if flood fill was truncated (there were more cells to reveal)
+    if (toReveal.length > 0) {
+      result.truncated = true;
     }
 
     return result;
