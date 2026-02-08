@@ -1,0 +1,18 @@
+{
+  "name": "Oh My Mines",
+  "short_name": "OhMyMines",
+  "description": "Massively multiplayer minesweeper game",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "theme_color": "#1a1a1a",
+  "background_color": "#fafafa",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -8,9 +8,18 @@ const MIN_HEIGHT = 100;
 const MAX_HEIGHT = 400;
 const DEFAULT_HEIGHT = 200;
 
+const QUICK_CHAT_PRESETS = [
+  { label: '도와주세요!', emoji: '🆘' },
+  { label: '좋아요!', emoji: '👍' },
+  { label: '위험해요!', emoji: '⚠️' },
+  { label: '같이해요!', emoji: '🤝' },
+  { label: 'gg', emoji: '🎮' },
+];
+
 export function Chat() {
   const [message, setMessage] = useState('');
   const [showEmojis, setShowEmojis] = useState(false);
+  const [showQuickChat, setShowQuickChat] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
@@ -73,6 +82,15 @@ export function Chat() {
       if (!player) return;
       sendChat(emoji, true);
       setShowEmojis(false);
+    },
+    [player, sendChat]
+  );
+
+  const handleQuickChat = useCallback(
+    (preset: typeof QUICK_CHAT_PRESETS[number]) => {
+      if (!player) return;
+      sendChat(`${preset.label} ${preset.emoji}`, false);
+      setShowQuickChat(false);
     },
     [player, sendChat]
   );
@@ -148,6 +166,22 @@ export function Chat() {
             <div ref={chatEndRef} />
           </div>
 
+          {/* Quick Chat Bar */}
+          {showQuickChat && (
+            <div className="flex flex-wrap gap-1 mb-1.5 pb-1.5 border-b border-game-border/30">
+              {QUICK_CHAT_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => handleQuickChat(preset)}
+                  className="px-2 py-1 text-[10px] sm:text-xs bg-game-primary border border-game-border hover:border-game-accent/50 hover:bg-game-accent/10 transition-colors text-game-text-dim whitespace-nowrap"
+                  style={{ clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)' }}
+                >
+                  {preset.emoji} {preset.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Input */}
           <div className="flex gap-1 sm:gap-2">
             <input
@@ -162,7 +196,16 @@ export function Chat() {
             />
 
             <button
-              onClick={() => setShowEmojis(!showEmojis)}
+              onClick={() => { setShowQuickChat(!showQuickChat); setShowEmojis(false); }}
+              className={`w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center border transition-colors flex-shrink-0 ${showQuickChat ? 'bg-game-accent/20 border-game-accent/50' : 'bg-game-primary border-game-border hover:border-game-accent/50'}`}
+              style={{ clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)' }}
+              title="Quick Chat"
+            >
+              <span className="text-[10px] sm:text-xs font-mono">QC</span>
+            </button>
+
+            <button
+              onClick={() => { setShowEmojis(!showEmojis); setShowQuickChat(false); }}
               className="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center bg-game-primary border border-game-border hover:border-game-accent/50 transition-colors flex-shrink-0"
               style={{ clipPath: 'polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px)' }}
             >

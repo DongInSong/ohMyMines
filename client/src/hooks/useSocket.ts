@@ -236,6 +236,10 @@ function initializeSocketHandlers(socket: TypedSocket) {
     try {
       const player = usePlayerStore.getState().player;
       if (player && playerId === player.id && combo) {
+        // Play combo sound when count increases
+        if (combo.count > 1) {
+          soundManager.play('combo');
+        }
         usePlayerStore.getState().setCombo(combo);
       }
     } catch (err) {
@@ -247,6 +251,9 @@ function initializeSocketHandlers(socket: TypedSocket) {
     try {
       const player = usePlayerStore.getState().player;
       if (player && playerId === player.id) {
+        // Play fever activation sound
+        soundManager.play('fever');
+
         const currentCombo = usePlayerStore.getState().combo ?? {
           count: 0,
           multiplier: 1,
@@ -269,8 +276,14 @@ function initializeSocketHandlers(socket: TypedSocket) {
     useGameStore.getState().addTreasure(treasure);
   });
 
-  socket.on('treasure:collected', ({ treasureId }) => {
+  socket.on('treasure:collected', ({ treasureId, playerId }) => {
     useGameStore.getState().removeTreasure(treasureId);
+
+    // Play treasure chime for the collecting player
+    const player = usePlayerStore.getState().player;
+    if (player && playerId === player.id) {
+      soundManager.play('treasure');
+    }
   });
 
   socket.on('treasure:expired', ({ treasureId }) => {

@@ -11,7 +11,10 @@ type SoundType =
   | 'achievement'
   | 'chat'
   | 'error'
-  | 'skill';
+  | 'skill'
+  | 'combo'
+  | 'fever'
+  | 'treasure';
 
 // Cooldown settings per sound type (in ms)
 const SOUND_COOLDOWNS: Record<SoundType, number> = {
@@ -25,6 +28,9 @@ const SOUND_COOLDOWNS: Record<SoundType, number> = {
   chat: 100,
   error: 200,
   skill: 150,
+  combo: 60,         // Combo tones in rapid succession
+  fever: 300,        // Fever mode activation
+  treasure: 200,     // Treasure pickup chime
 };
 
 // Maximum concurrent sounds before volume reduction kicks in
@@ -137,6 +143,15 @@ class SoundManager {
           break;
         case 'skill':
           this.playSkill();
+          break;
+        case 'combo':
+          this.playCombo();
+          break;
+        case 'fever':
+          this.playFever();
+          break;
+        case 'treasure':
+          this.playTreasure();
           break;
       }
     } catch (e) {
@@ -387,27 +402,165 @@ class SoundManager {
     this.trackSound(200);
   }
 
-  // Skill activation
+  // Skill activation - rising arpeggio
   private playSkill(): void {
+    const ctx = this.getContext();
+    const vol = this.getEffectiveVolume();
+
+    const notes = [523, 659, 784]; // C5, E5, G5 ascending arpeggio
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'triangle';
+      const startTime = ctx.currentTime + i * 0.06;
+      osc.frequency.setValueAtTime(freq, startTime);
+
+      gain.gain.setValueAtTime(vol * 0.25, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.12);
+
+      osc.start(startTime);
+      osc.stop(startTime + 0.12);
+    });
+
+    this.trackSound(250);
+  }
+
+  // Combo - rising tone based on internal counter
+  private comboCounter: number = 0;
+  private comboResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private playCombo(): void {
     const ctx = this.getContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const vol = this.getEffectiveVolume();
 
+    // Rising pitch with each successive combo
+    const basePitch = 440 + this.comboCounter * 60;
+    const pitch = Math.min(basePitch, 1200); // Cap at 1200Hz
+    this.comboCounter++;
+
+    // Reset counter after inactivity
+    if (this.comboResetTimer) clearTimeout(this.comboResetTimer);
+    this.comboResetTimer = setTimeout(() => { this.comboCounter = 0; }, 2000);
+
     osc.connect(gain);
     gain.connect(ctx.destination);
 
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(400, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.1);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(pitch, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(pitch * 1.2, ctx.currentTime + 0.06);
 
-    gain.gain.setValueAtTime(vol * 0.25, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(vol * 0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
 
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.15);
+    osc.stop(ctx.currentTime + 0.08);
 
-    this.trackSound(150);
+    this.trackSound(80);
+  }
+
+  // Fever mode activation - energetic sweeping effect
+  private playFever(): void {
+    const ctx = this.getContext();
+    const vol = this.getEffectiveVolume();
+
+    // Fast ascending sweep
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(200, ctx.currentTime);
+    osc1.frequency.exponentialRampToValueAtTime(1600, ctx.currentTime + 0.25);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(2000, ctx.currentTime);
+    filter.frequency.linearRampToValueAtTime(4000, ctx.currentTime + 0.15);
+    filter.frequency.linearRampToValueAtTime(1000, ctx.currentTime + 0.35);
+
+    osc1.disconnect();
+    osc1.connect(filter);
+    filter.connect(gain1);
+    gain1.connect(ctx.destination);
+
+    gain1.gain.setValueAtTime(vol * 0.3, ctx.currentTime);
+    gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+
+    osc1.start(ctx.currentTime);
+    osc1.stop(ctx.currentTime + 0.35);
+
+    // Bright staccato burst at the peak
+    const notes = [784, 988, 1175]; // G5, B5, D6
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sine';
+      const t = ctx.currentTime + 0.15 + i * 0.05;
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(vol * 0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+
+      osc.start(t);
+      osc.stop(t + 0.1);
+    });
+
+    this.trackSound(400);
+  }
+
+  // Treasure collected - bright chime
+  private playTreasure(): void {
+    const ctx = this.getContext();
+    const vol = this.getEffectiveVolume();
+
+    // Sparkly chime: two octave arpeggio
+    const notes = [784, 988, 1175, 1568]; // G5, B5, D6, G6
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.type = 'sine';
+      const t = ctx.currentTime + i * 0.07;
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(vol * 0.25, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+      osc.start(t);
+      osc.stop(t + 0.25);
+    });
+
+    // Shimmer overtone
+    const shimmer = ctx.createOscillator();
+    const shimmerGain = ctx.createGain();
+    shimmer.connect(shimmerGain);
+    shimmerGain.connect(ctx.destination);
+
+    shimmer.type = 'sine';
+    shimmer.frequency.setValueAtTime(2350, ctx.currentTime + 0.15);
+
+    shimmerGain.gain.setValueAtTime(vol * 0.08, ctx.currentTime + 0.15);
+    shimmerGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+
+    shimmer.start(ctx.currentTime + 0.15);
+    shimmer.stop(ctx.currentTime + 0.5);
+
+    this.trackSound(500);
   }
 }
 

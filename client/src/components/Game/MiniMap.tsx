@@ -1,6 +1,7 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { MAP_WIDTH, MAP_HEIGHT, RENDER, ZONE_COLORS, ZONE_LAYOUT, CHUNK_SIZE } from 'shared';
 import { useGameStore } from '../../stores/gameStore';
+import { usePlayerStore } from '../../stores/playerStore';
 
 export function MiniMap() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -10,6 +11,8 @@ export function MiniMap() {
   const session = useGameStore((s) => s.session);
   const visibleCells = useGameStore((s) => s.visibleCells);
   const treasures = useGameStore((s) => s.treasures);
+  const otherCursors = useGameStore((s) => s.otherCursors);
+  const player = usePlayerStore((s) => s.player);
   const [, setTick] = useState(0);
 
   // Update for treasure animation
@@ -160,17 +163,60 @@ export function MiniMap() {
       ctx.fillStyle = `${colors[treasure.type]}40`;
       ctx.fill();
 
-      // Core
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      // Core - diamond shape for treasures
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.PI / 4);
       ctx.fillStyle = colors[treasure.type];
+      ctx.fillRect(-2.5, -2.5, 5, 5);
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(-2.5, -2.5, 5, 5);
+      ctx.restore();
+    }
+
+    // Draw other players' positions with their colors
+    for (const cursor of otherCursors) {
+      const px = cursor.position.x * scale;
+      const py = cursor.position.y * scale;
+
+      // Outer glow
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fillStyle = `${cursor.color}40`;
       ctx.fill();
 
-      // Border
+      // Player dot
       ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = cursor.color;
+      ctx.fill();
       ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
+    // Draw current player position with distinct marker
+    if (player) {
+      const myX = viewportCenter.x * scale;
+      const myY = viewportCenter.y * scale;
+
+      // Outer ring
+      ctx.beginPath();
+      ctx.arc(myX, myY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = `${player.color}50`;
+      ctx.fill();
+
+      // Core dot
+      ctx.beginPath();
+      ctx.arc(myX, myY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = player.color;
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = 0.5;
       ctx.stroke();
     }
 
@@ -188,28 +234,6 @@ export function MiniMap() {
     ctx.strokeStyle = '#1a1a1a';
     ctx.lineWidth = 2;
     ctx.strokeRect(viewX, viewY, viewWidth, viewHeight);
-
-    // Draw current position dot
-    ctx.fillStyle = '#1a1a1a';
-    ctx.beginPath();
-    ctx.arc(viewportCenter.x * scale, viewportCenter.y * scale, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Crosshair at center
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
-    ctx.lineWidth = 1;
-    const cx = viewportCenter.x * scale;
-    const cy = viewportCenter.y * scale;
-    ctx.beginPath();
-    ctx.moveTo(cx - 6, cy);
-    ctx.lineTo(cx - 2, cy);
-    ctx.moveTo(cx + 2, cy);
-    ctx.lineTo(cx + 6, cy);
-    ctx.moveTo(cx, cy - 6);
-    ctx.lineTo(cx, cy - 2);
-    ctx.moveTo(cx, cy + 2);
-    ctx.lineTo(cx, cy + 6);
-    ctx.stroke();
 
     // Border frame
     ctx.strokeStyle = '#d0d0d0';
@@ -231,7 +255,7 @@ export function MiniMap() {
     ctx.lineTo(size, size);
     ctx.lineTo(size - 12, size);
     ctx.stroke();
-  }, [viewportCenter, zoom, chunks, visibleCells, treasures]);
+  }, [viewportCenter, zoom, chunks, visibleCells, treasures, otherCursors, player]);
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -324,8 +348,18 @@ export function MiniMap() {
             <span className="w-1.5 h-1.5 rounded-full bg-game-danger" /> Explosion
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-game-accent" /> Position
+            <span className="w-1.5 h-1.5 rounded-full border border-white" style={{ backgroundColor: player?.color ?? '#888' }} /> You
           </span>
+          {otherCursors.length > 0 && (
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" /> Players
+            </span>
+          )}
+          {treasures.length > 0 && (
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rotate-45 bg-yellow-400" /> Treasure
+            </span>
+          )}
         </div>
       </div>
     </div>

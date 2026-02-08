@@ -74,15 +74,23 @@ export class GameRenderer {
   private pixelWaves: PixelWave[] = [];
   private globalTime: number = 0;
 
+  // Mobile detection & optimization
+  private isMobile: boolean = false;
+  private maxDpr: number = 3;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
+
+    // Detect mobile via pointer type or screen size
+    this.isMobile = window.matchMedia('(pointer: coarse)').matches || window.innerWidth < 768;
+    this.maxDpr = this.isMobile ? 2 : 3;
   }
 
   // Call this when a mine explodes
   triggerExplosion(worldX: number, worldY: number) {
     const particles: Particle[] = [];
-    const particleCount = 30;
+    const particleCount = this.isMobile ? 15 : 30;
     const colors = ['#ff4444', '#ff8800', '#ffcc00', '#ffffff', '#ff0000'];
 
     for (let i = 0; i < particleCount; i++) {
@@ -181,10 +189,11 @@ export class GameRenderer {
     }
   }
 
-  // Trigger a pixel wave effect (limited to max 5 concurrent waves)
+  // Trigger a pixel wave effect (limited to max 5 concurrent waves, fewer on mobile)
   private triggerPixelWave(originX: number, originY: number, color: string, type: 'radial' | 'horizontal' | 'vertical', duration: number) {
-    // Limit concurrent waves for performance
-    if (this.pixelWaves.length >= 5) {
+    // Limit concurrent waves for performance (fewer on mobile)
+    const maxWaves = this.isMobile ? 2 : 5;
+    if (this.pixelWaves.length >= maxWaves) {
       this.pixelWaves.shift(); // Remove oldest wave
     }
 
@@ -296,13 +305,16 @@ export class GameRenderer {
     // Draw other player cursors
     this.drawCursors(cursors, startX, startY, endX, endY);
 
-    // Draw grid lines (if zoomed in enough)
-    if (zoom >= 1) {
+    // Draw grid lines (if zoomed in enough, skip on mobile at low zoom)
+    const gridThreshold = this.isMobile ? 1.2 : 1;
+    if (zoom >= gridThreshold) {
       this.drawGrid(startX, startY, endX, endY);
     }
 
-    // Draw zone borders with neon glow
-    this.drawZoneBorders();
+    // Draw zone borders with neon glow (simplified on mobile at low zoom)
+    if (!this.isMobile || zoom >= 0.7) {
+      this.drawZoneBorders();
+    }
 
     // Clean up old mines from glow tracking
     const now = Date.now();
@@ -988,8 +1000,9 @@ export class GameRenderer {
       this.ctx.arc(centerX, centerY + floatY, glowSize, 0, Math.PI * 2);
       this.ctx.fill();
 
-      // Draw sparkle particles
-      const sparkleCount = treasure.type === 'rainbow' ? 8 : (treasure.type === 'diamond' ? 6 : 4);
+      // Draw sparkle particles (fewer on mobile)
+      const baseSparkles = treasure.type === 'rainbow' ? 8 : (treasure.type === 'diamond' ? 6 : 4);
+      const sparkleCount = this.isMobile ? Math.ceil(baseSparkles / 2) : baseSparkles;
       for (let i = 0; i < sparkleCount; i++) {
         const sparkleAngle = (now / 1000 + i * (Math.PI * 2 / sparkleCount)) % (Math.PI * 2);
         const sparkleDistance = size * 0.4 * pulse;

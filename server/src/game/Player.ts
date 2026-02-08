@@ -246,11 +246,27 @@ export class PlayerManager {
 
     const skills = player.skills as Record<SkillType, PlayerSkillState>;
     const skillState = skills.shield;
-    if (skillState.isActive) {
+    if (!skillState.isActive) return false;
+
+    // Verify the shield hasn't expired (race condition check)
+    if (skillState.activeUntil && Date.now() >= skillState.activeUntil) {
       skillState.isActive = false;
-      return true;
+      skillState.activeUntil = undefined;
+      return false;
     }
-    return false;
+
+    skillState.isActive = false;
+    skillState.activeUntil = undefined;
+
+    // Clear the shield timer since it was consumed
+    const timerKey = `${playerId}:shield`;
+    const existingTimer = this.skillTimers.get(timerKey);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.skillTimers.delete(timerKey);
+    }
+
+    return true;
   }
 
   // Item Management
@@ -323,13 +339,16 @@ export class PlayerManager {
       player.activeEffects.push(finalEffect);
     }
 
-    // Apply effect
+    // Apply effect with state validation
     switch (effect.itemId) {
       case 'double_points':
         player.scoreMultiplier = effect.value ?? 2;
         break;
       case 'ghost_mode':
-        player.isGhostMode = true;
+        // Only apply if not already in ghost mode (prevent duplicate state transitions)
+        if (!player.isGhostMode) {
+          player.isGhostMode = true;
+        }
         break;
       case 'cooldown_reduction':
         player.cooldownReduction = Math.min(0.9, player.cooldownReduction + (effect.value ?? 0.5));
@@ -351,6 +370,10 @@ export class PlayerManager {
   removeEffect(playerId: string, itemId: ItemType): void {
     const player = this.players.get(playerId);
     if (!player) return;
+
+    // Verify the effect actually exists before removing (race condition guard)
+    const effectExists = player.activeEffects.some(e => e.itemId === itemId);
+    if (!effectExists) return;
 
     player.activeEffects = player.activeEffects.filter(e => e.itemId !== itemId);
 

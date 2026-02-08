@@ -12,7 +12,7 @@ import {
   Cell,
   TreasureCell,
 } from 'shared';
-import { SCORES, NETWORK, EMOJI_REACTIONS, COMBO, TREASURE } from 'shared';
+import { SCORES, NETWORK, EMOJI_REACTIONS, COMBO, TREASURE, MAX_PLAYERS } from 'shared';
 import { SERVER_EVENTS, CLIENT_EVENTS } from './events.js';
 import {
   GameMap,
@@ -122,6 +122,12 @@ export class SocketHandlers {
     const colorResult = InputValidator.validateColor(data.color);
     if (!colorResult.valid) {
       socket.emit(SERVER_EVENTS.ERROR, { message: colorResult.error });
+      return;
+    }
+
+    // Check max player limit
+    if (this.playerManager.getPlayerCount() >= MAX_PLAYERS) {
+      socket.emit(SERVER_EVENTS.ERROR, { message: '서버가 가득 찼습니다. 나중에 다시 시도해주세요.' });
       return;
     }
 

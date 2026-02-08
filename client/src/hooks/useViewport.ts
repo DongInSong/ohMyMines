@@ -238,6 +238,19 @@ export function useViewport(canvasRef: React.RefObject<HTMLCanvasElement>) {
     return () => canvas.removeEventListener('wheel', handleWheel);
   }, [canvasRef, handleWheel]);
 
+  // Listen for joystick move events (from VirtualJoystick component)
+  useEffect(() => {
+    const handleJoystickMove = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) {
+        pan(detail.deltaX, detail.deltaY);
+      }
+    };
+
+    window.addEventListener('joystick-move', handleJoystickMove);
+    return () => window.removeEventListener('joystick-move', handleJoystickMove);
+  }, [pan]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

@@ -216,23 +216,22 @@ export class GameMap {
     }
 
     // Flood fill for revealing cells (with limit to prevent revealing too many at once)
+    // Use numeric encoding for visited set to reduce string allocation overhead
     const toReveal: Position[] = [{ x, y }];
-    const revealed = new Set<string>();
+    const visited = new Set<number>();
+    visited.add(y * MAP_WIDTH + x);
     const maxCells = MAX_FLOOD_FILL_CELLS || 500; // Fallback if not defined
+    const now = Date.now();
 
     while (toReveal.length > 0 && result.cells.length < maxCells) {
       const pos = toReveal.pop()!;
-      const key = `${pos.x},${pos.y}`;
-
-      if (revealed.has(key)) continue;
-      revealed.add(key);
 
       const currentCell = this.getCell(pos.x, pos.y);
       if (!currentCell || currentCell.state !== 'hidden' || currentCell.isMine) continue;
 
       currentCell.state = 'revealed';
       currentCell.revealedBy = playerId;
-      currentCell.revealedAt = Date.now();
+      currentCell.revealedAt = now;
       result.cells.push({ ...currentCell });
 
       // Update chunk revealed count
@@ -252,7 +251,11 @@ export class GameMap {
             const nx = pos.x + dx;
             const ny = pos.y + dy;
             if (nx >= 0 && nx < MAP_WIDTH && ny >= 0 && ny < MAP_HEIGHT) {
-              toReveal.push({ x: nx, y: ny });
+              const nKey = ny * MAP_WIDTH + nx;
+              if (!visited.has(nKey)) {
+                visited.add(nKey);
+                toReveal.push({ x: nx, y: ny });
+              }
             }
           }
         }

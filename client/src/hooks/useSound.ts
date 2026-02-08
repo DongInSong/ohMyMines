@@ -29,6 +29,9 @@ export function useSound() {
     playChat: () => soundManager.play('chat'),
     playError: () => soundManager.play('error'),
     playSkill: () => soundManager.play('skill'),
+    playCombo: () => soundManager.play('combo'),
+    playFever: () => soundManager.play('fever'),
+    playTreasure: () => soundManager.play('treasure'),
     // Music controls
     startMusic: () => musicManager.start(),
     stopMusic: () => musicManager.stop(),

@@ -5,6 +5,7 @@ import { useViewport } from '../../hooks/useViewport';
 import { useGame } from '../../hooks/useGame';
 import { useGameStore } from '../../stores/gameStore';
 import { usePlayerStore } from '../../stores/playerStore';
+import { useTouchGestures } from '../../hooks/useTouchGestures';
 
 export function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -16,6 +17,8 @@ export function GameCanvas() {
     viewport,
     screenToWorld,
     getVisibleChunks,
+    pan,
+    zoom,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
@@ -158,6 +161,45 @@ export function GameCanvas() {
     },
     [screenToWorld, handleCellRightClick]
   );
+
+  // Touch gesture handlers
+  const onTouchTap = useCallback(
+    (screenX: number, screenY: number) => {
+      const worldPos = screenToWorld(screenX, screenY);
+      handleCellClick(worldPos);
+    },
+    [screenToWorld, handleCellClick]
+  );
+
+  const onTouchLongPress = useCallback(
+    (screenX: number, screenY: number) => {
+      const worldPos = screenToWorld(screenX, screenY);
+      handleCellRightClick(worldPos);
+    },
+    [screenToWorld, handleCellRightClick]
+  );
+
+  const onTouchPan = useCallback(
+    (deltaX: number, deltaY: number) => {
+      pan(deltaX, deltaY);
+    },
+    [pan]
+  );
+
+  const onTouchZoom = useCallback(
+    (delta: number) => {
+      zoom(delta);
+    },
+    [zoom]
+  );
+
+  useTouchGestures({
+    canvasRef: canvasRef as React.RefObject<HTMLCanvasElement>,
+    onTap: onTouchTap,
+    onLongPress: onTouchLongPress,
+    onPan: onTouchPan,
+    onZoom: onTouchZoom,
+  });
 
   return (
     <div className="w-full h-full relative">

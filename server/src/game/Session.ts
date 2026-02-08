@@ -114,8 +114,14 @@ export class SessionManager {
   private endSession(reason: 'mines_exploded' | 'map_cleared' | 'time_limit'): void {
     if (!this.currentSession) return;
 
+    // Prevent ending an already ending/finished session
+    if (this.currentSession.state !== 'active') return;
+
     this.currentSession.state = 'ending';
     this.currentSession.endReason = reason;
+
+    // Validate player score integrity before generating leaderboard
+    this.validatePlayerScores();
 
     // Generate leaderboard
     const leaderboard = this.generateLeaderboard();
@@ -145,6 +151,27 @@ export class SessionManager {
         }
       }, SESSION.NEW_SESSION_DELAY);
     }, SESSION.ENDING_COUNTDOWN * 1000);
+  }
+
+  /**
+   * Validate all player scores for integrity before session end.
+   * Ensures score matches stats.score and no negative scores exist.
+   */
+  private validatePlayerScores(): void {
+    for (const player of this.playerManager.getAllPlayers()) {
+      // Sync score with stats.score
+      if (player.score !== player.stats.score) {
+        console.warn(`[Session] Score mismatch for ${player.name}: score=${player.score}, stats.score=${player.stats.score}. Correcting.`);
+        player.stats.score = player.score;
+      }
+
+      // Clamp negative scores to 0
+      if (player.score < 0) {
+        console.warn(`[Session] Negative score for ${player.name}: ${player.score}. Clamping to 0.`);
+        player.score = 0;
+        player.stats.score = 0;
+      }
+    }
   }
 
   private generateLeaderboard(): LeaderboardEntry[] {

@@ -2056,3 +2056,213 @@ a:focus-visible,
   color: var(--game-success);
   margin-right: 8px;
 }
+
+/* ====== MOBILE STYLES ====== */
+
+/* Safe area padding for notched devices */
+.pb-safe {
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+}
+
+/* Mobile bottom bar - fixed skillbar area */
+.mobile-bottom-bar {
+  background: linear-gradient(
+    to top,
+    rgba(250, 250, 250, 0.96) 0%,
+    rgba(250, 250, 250, 0.9) 80%,
+    rgba(250, 250, 250, 0) 100%
+  );
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 15;
+}
+
+/* Mobile floating action buttons */
+.mobile-fab {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(248, 248, 248, 0.95) 100%
+  );
+  border: 2px solid rgba(80, 80, 80, 0.3);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.08);
+  clip-path: polygon(
+    6px 0, calc(100% - 6px) 0, 100% 6px,
+    100% calc(100% - 6px), calc(100% - 6px) 100%,
+    6px 100%, 0 calc(100% - 6px), 0 6px
+  );
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mobile-fab:active {
+  transform: scale(0.93);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile slide-up modal */
+.mobile-slide-up {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(252, 252, 252, 0.99) 100%
+  );
+  border-top: 2px solid rgba(80, 80, 80, 0.2);
+  border-radius: 16px 16px 0 0;
+  padding: 8px 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.1);
+  animation: slideUpIn 0.25s ease-out;
+  z-index: 31;
+}
+
+.mobile-slide-up-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--game-border);
+  border-radius: 2px;
+  margin: 4px auto 12px;
+}
+
+@keyframes slideUpIn {
+  from {
+    transform: translateY(100%);
+    opacity: 0.8;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ====== VIRTUAL JOYSTICK ====== */
+.virtual-joystick-wrapper {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .virtual-joystick-wrapper {
+    display: block;
+    position: fixed;
+    bottom: 100px;
+    left: 20px;
+    z-index: 15;
+  }
+}
+
+.virtual-joystick {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.virtual-joystick-outer {
+  position: relative;
+  border-radius: 50%;
+  background: rgba(150, 150, 150, 0.12);
+  border: 2px solid rgba(100, 100, 100, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.virtual-joystick-inner {
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    rgba(120, 120, 120, 0.35) 0%,
+    rgba(80, 80, 80, 0.45) 100%
+  );
+  border: 1.5px solid rgba(60, 60, 60, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: transform 0.05s linear;
+  will-change: transform;
+}
+
+.virtual-joystick-inner.active {
+  background: linear-gradient(
+    135deg,
+    rgba(80, 80, 80, 0.5) 0%,
+    rgba(50, 50, 50, 0.6) 100%
+  );
+  border-color: rgba(40, 40, 40, 0.4);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* ====== MOBILE SAFE AREA ====== */
+@supports (padding: env(safe-area-inset-top)) {
+  .mobile-bottom-bar {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ====== MOBILE ORIENTATION SUPPORT ====== */
+@media (max-width: 768px) and (orientation: landscape) {
+  /* In landscape, reduce top/bottom padding, move UI to sides */
+  .mobile-bottom-bar {
+    padding-top: 2px;
+    padding-bottom: env(safe-area-inset-bottom, 2px);
+  }
+
+  .virtual-joystick-wrapper {
+    bottom: 20px;
+    left: env(safe-area-inset-left, 20px);
+  }
+
+  .mobile-fab-group {
+    bottom: 20px !important;
+    right: env(safe-area-inset-right, 12px);
+  }
+}
+
+@media (max-width: 768px) and (orientation: portrait) {
+  /* Portrait mode adjustments */
+  .mobile-bottom-bar {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  }
+}
+
+/* ====== MOBILE TOUCH OPTIMIZATIONS ====== */
+@media (pointer: coarse) {
+  /* Prevent text selection during gameplay on touch */
+  #game-canvas {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Larger tap targets for mobile */
+  .game-panel-header {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Hide mouse position display on touch devices */
+  .mouse-pos-bar {
+    display: none;
+  }
+}
+
+/* ====== MOBILE NAVIGATION BAR CONSIDERATION ====== */
+@media (max-width: 768px) {
+  html, body, #root {
+    /* Account for mobile browser chrome */
+    height: 100dvh;
+  }
+}
